@@ -1,0 +1,79 @@
+@use 'mixins' as m;
+
+:host {
+  display: block;
+  min-height: 100vh;
+  padding: var(--space-2xl) var(--space-md);
+}
+
+.hello {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+
+  &__header {
+    text-align: center;
+  }
+
+  &__title {
+    color: var(--color-text-heading);
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-bold);
+    margin-bottom: var(--space-sm);
+  }
+
+  &__subtitle {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+  }
+
+  &__form {
+    @include m.card(var(--space-lg));
+    display: flex;
+    gap: var(--space-sm);
+  }
+
+  &__input {
+    @include m.input-field;
+    flex: 1;
+  }
+
+  &__button {
+    @include m.button-primary;
+    padding: var(--space-sm) var(--space-lg);
+    white-space: nowrap;
+  }
+
+  &__error {
+    color: var(--color-error);
+    padding: var(--space-md);
+    border: 1px solid var(--color-error);
+    border-radius: var(--border-radius-md);
+    font-size: var(--font-size-sm);
+  }
+
+  &__result {
+    @include m.card(var(--space-lg));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  &__message {
+    color: var(--color-text-heading);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-medium);
+  }
+
+  &__uuid {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+
+    code {
+      font-family: var(--font-family-mono);
+      color: var(--color-accent-primary);
+    }
+  }
+}

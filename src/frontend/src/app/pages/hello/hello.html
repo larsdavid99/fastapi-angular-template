@@ -1,0 +1,38 @@
+<section class="hello">
+  <header class="hello__header">
+    <h1 class="hello__title">FastAPI + Angular Template</h1>
+    <p class="hello__subtitle">
+      Layered architecture: Router → Facade → Logic → Client
+    </p>
+  </header>
+
+  <form class="hello__form" (submit)="$event.preventDefault(); submit()">
+    <input
+      class="hello__input"
+      type="text"
+      placeholder="Enter your name"
+      [ngModel]="name()"
+      (ngModelChange)="name.set($event)"
+      name="name"
+      autocomplete="off"
+    />
+    <button
+      class="hello__button"
+      type="submit"
+      [disabled]="isLoading() || !name().trim()"
+    >
+      @if (isLoading()) { Loading… } @else { Submit }
+    </button>
+  </form>
+
+  @if (error(); as err) {
+    <p class="hello__error" role="alert">{{ err }}</p>
+  }
+
+  @if (result(); as res) {
+    <article class="hello__result">
+      <p class="hello__message">{{ res.message }}</p>
+      <p class="hello__uuid">UUID: <code>{{ res.uuid }}</code></p>
+    </article>
+  }
+</section>

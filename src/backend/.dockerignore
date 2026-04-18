@@ -1,0 +1,43 @@
+# Python bytecode
+__pycache__
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual environments
+.venv
+venv
+env
+.env
+
+# IDE and editor files
+.idea
+.vscode
+*.sublime-*
+
+# Test and coverage
+.pytest_cache
+.coverage
+htmlcov
+*.cover
+
+# Distribution / packaging
+*.egg
+*.egg-info
+dist
+build
+
+# Git
+.git
+.gitignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local development files
+.mypy_cache
+.ruff_cache

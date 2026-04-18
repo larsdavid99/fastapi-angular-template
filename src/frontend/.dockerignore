@@ -1,0 +1,45 @@
+# Dependencies - handled by npm ci in container
+node_modules
+
+# Build outputs
+www
+dist
+/out-tsc
+
+# IDE and editor files
+.idea
+.vscode
+*.sublime-*
+.angular
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Native mobile builds (Capacitor)
+android
+ios
+platforms
+plugins
+
+# Test and coverage
+coverage
+*.spec.ts
+
+# Temporary files
+*.log
+*.tmp
+.tmp
+npm-debug.log
+yarn-error.log
+
+# Documentation
+*.md
+!README.md
+
+# Environment files (will use Docker env vars)
+.env*
