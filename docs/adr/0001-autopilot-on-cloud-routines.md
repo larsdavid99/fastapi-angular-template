@@ -1,0 +1,15 @@
+# Autopilot runs on Claude cloud routines, and a deterministic command makes its decisions
+
+Autopilot builds an approved spec one ticket at a time, with no one at the keyboard. An agent implements the next ticket and opens a PR. A fresh agent reviews it with the mattpocock `code-review`, and a fresh agent fixes the findings. Then the PR either auto-merges or waits for the Driver, and its merge starts the next ticket. The agents run as Claude Code cloud routines, triggered by GitHub pull request events and by one small GitHub workflow that turns the `autopilot` label into an API call. We chose this over running `claude-code-action` in GitHub Actions. On the Max plan, headless runs there draw from a separate monthly API-credit pool whose size isn't published. The subscription token is meant for "ordinary use", not an unattended loop. Chaining workflows would also need a GitHub App token or a PAT. Routines use the subscription's normal usage and need no Claude credentials in CI. The mattpocock skills load inside a routine, with one catch. A cloud session doesn't install the plugins a repo turns on in `.claude/settings.json`, so the routines' cloud environment installs the plugin in its setup script instead. If routines stop working for us, we fall back to the same design on GitHub Actions.
+
+The agents write, review and fix code, but they never decide a gate. Which ticket is next, whether a spec may start, whether a PR may auto-merge and what a branch is called are all printed by a small deterministic `autopilot` command, tested against faked GitHub state. AI proposes, code decides, applied to the loop itself.
+
+## Consequences
+
+- One ticket at a time, one PR per ticket, and one spec on autopilot at a time. Tickets built in parallel would race for shared files such as migrations, and every agent starts from a `main` that already holds the previous ticket.
+- Loop branches are `claude/<type>/<n>-<slug>` (`feature`, `fix`, `docs`, `chore`, `ci`). Hand-written branches keep `<type>/<n>-<slug>`, so an agent PR can be told apart by its branch, and the routines' GitHub triggers pick out agent PRs with "head branch starts with `claude/`". The prefix is our convention, not a routine limit. Routines can push to any branch the ruleset allows.
+- Both routines use one cloud environment, whose setup script installs the mattpocock plugin. That script lives on claude.ai, not in the repo, so the routine instructions record it.
+- Auto-merge never overrides a person. PRs that touch `GLOSSARY.md` or an ADR, or stray from the spec, wait for the Reviewer. PRs that touch the loop's own machinery (`.github/`, `.claude/`, the autopilot prompts) wait for the Driver.
+- `main` needs a ruleset with required checks (every check in `.github/workflows/ci.yml`), and nothing in CONTRIBUTING.md is "check it yourself" any more. Approval stays optional, so the Driver's own merges aren't blocked.
+- Any failure stops the whole loop and hands the ticket to the Driver. It never skips ahead, because later tickets usually build on earlier ones.
+- Routines are a research preview. If their triggers or limits change, the fallback above is the way out.

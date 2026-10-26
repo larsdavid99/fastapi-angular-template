@@ -1,0 +1,131 @@
+name: CI
+
+# Runs when a PR is opened or updated, not on every push to a branch.
+# Each job is its own check, named after what it runs. Keep the names stable:
+# they're what main's ruleset requires, and Autopilot's gate reads that list.
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Same tools and config as local development: requirements-dev.txt,
+  # pyproject.toml and .flake8 in src/backend.
+  backend:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      # One failing tool mustn't cancel the others, so each check reports on its own.
+      fail-fast: false
+      matrix:
+        include:
+          - check: pytest
+            command: python -m pytest
+          - check: black
+            command: black --check --diff .
+          - check: flake8
+            command: flake8 .
+
+    defaults:
+      run:
+        working-directory: src/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            src/backend/requirements.txt
+            src/backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ${{ matrix.check }}
+        run: ${{ matrix.command }}
+
+  # Add a `frontend test` check here once src/frontend has its first spec:
+  # `ng test` fails when there are none.
+  frontend:
+    name: frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: src/frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  # The command Autopilot's agents follow (docs/adr/0001). It fakes GitHub, so
+  # it needs nothing else running. It promises to run on Python 3.9
+  # (src/autopilot/pyproject.toml), so its tests run there too; black and mypy
+  # no longer install on 3.9, so only pytest does.
+  autopilot:
+    name: autopilot ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - check: pytest
+            python: "3.13"
+            install: pip install -r requirements-dev.txt
+            command: python -m pytest
+          - check: pytest (3.9)
+            python: "3.9"
+            install: pip install pytest
+            command: python -m pytest
+          - check: black
+            python: "3.13"
+            install: pip install -r requirements-dev.txt
+            command: black --check --diff .
+          - check: flake8
+            python: "3.13"
+            install: pip install -r requirements-dev.txt
+            command: flake8 .
+          - check: mypy
+            python: "3.13"
+            install: pip install -r requirements-dev.txt
+            command: mypy .
+
+    defaults:
+      run:
+        working-directory: src/autopilot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: src/autopilot/requirements-dev.txt
+
+      - name: Install dependencies
+        run: ${{ matrix.install }}
+
+      - name: Run ${{ matrix.check }}
+        run: ${{ matrix.command }}

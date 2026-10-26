@@ -1,0 +1,20 @@
+# The command runs on whatever python3 the routine's environment has, so it
+# keeps to Python 3.9 and the standard library.
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.mypy]
+python_version = "3.10"  # the oldest mypy still checks against
+strict = true
+
+# Test functions and fixtures needn't be annotated.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

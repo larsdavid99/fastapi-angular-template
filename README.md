@@ -7,6 +7,8 @@ A production-ready starting point for full-stack projects with:
 - **Docker Compose:** hot reload for both services, `debugpy` attach on `:5678`
 - **Architecture docs:** `.claude/CLAUDE.md` (backend) and `.claude/frontend-CLAUDE.md` (frontend)
 - **Minimal "hello" feature** end-to-end so you can start by copy-and-modify
+- **Agent workflow:** idea → spec → tickets with the [mattpocock skills](https://github.com/mattpocock/skills), and **Autopilot**, which builds an approved spec one ticket at a time on Claude cloud routines ([`CONTRIBUTING.md`](CONTRIBUTING.md))
+- **CI** on every PR, which Autopilot's merge gate relies on
 
 ## Using this template
 
@@ -19,6 +21,7 @@ A production-ready starting point for full-stack projects with:
    gh repo create my-new-app --template <owner>/<template-repo> --private --clone
    cd my-new-app
    ./bin/rename.sh my-new-app
+   ./bin/setup-autopilot.sh   # labels + main's ruleset, see CONTRIBUTING.md
    docker compose up --build
    ```
 
@@ -66,12 +69,16 @@ On the home page, type a name and click **Submit**. The request flows through ev
 
 ```
 .
-├── .claude/                   # Architecture docs used by Claude Code
+├── .claude/                   # Architecture docs, and settings: the mattpocock plugin, the Autopilot skills hook
+├── .github/workflows/         # CI, and the workflows that start Autopilot and merge its PRs
 ├── .vscode/                   # debugpy launch configs, Black + Flake8 settings
-├── docs/                      # architecture-pattern.md, docker-setup.md
+├── docs/                      # architecture-pattern.md, docker-setup.md, adr/, agents/ (skill config, Autopilot routine instructions)
 ├── docker-compose.yml
+├── CONTRIBUTING.md            # Roles, labels, the idea → merge workflow, Autopilot
 ├── bin/rename.sh              # One-shot project rename
+├── bin/setup-autopilot.sh     # Labels and main's ruleset on GitHub
 └── src/
+    ├── autopilot/             # The `autopilot` command, which decides each step of the Autopilot loop, and its skills hook (own tests)
     ├── backend/               # FastAPI
     │   ├── clients/           # Pure HTTP (one class per file)
     │   ├── logic/             # Business rules + orchestration
@@ -115,6 +122,29 @@ docker compose exec frontend npm test
 # Build for production
 docker compose exec frontend npm run build
 ```
+
+### CI
+
+GitHub Actions runs on every pull request (`.github/workflows/ci.yml`). Each job is its own check: `pytest`, `black` and `flake8` for the backend, `frontend build`, and the `autopilot …` checks for the `autopilot` command. The backend checks install `requirements-dev.txt`, which pins black and flake8, so local runs and CI agree. Pushes to a branch without a PR don't trigger it.
+
+When you add a check, add its name to `REQUIRED_CHECKS` in `bin/setup-autopilot.sh` and run the script again, so `main` requires it.
+
+### Autopilot
+
+Autopilot builds an approved Spec one Ticket at a time, with no one at the keyboard: cloud agents write, review and fix the code, and the `autopilot` command in `src/autopilot/` decides what happens next. How to set it up, start, stop and read it is in [the Autopilot section of `CONTRIBUTING.md`](CONTRIBUTING.md#autopilot).
+
+To check a change to the command locally, as CI's `autopilot` job does, run these on the host. Use Python 3.10 or newer (the pinned mypy needs it), ideally in a virtualenv:
+
+```bash
+cd src/autopilot
+pip install -r requirements-dev.txt
+python -m pytest        # tests
+black --check .         # format
+flake8 .                # lint
+mypy .                  # type-check
+```
+
+The command needs only the standard library and the `gh` CLI. It promises to run on Python 3.9, so CI also runs `autopilot pytest (3.9)`.
 
 ## Starting a new feature
 
