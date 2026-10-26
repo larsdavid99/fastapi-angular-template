@@ -15,9 +15,7 @@ def get_example_http_client() -> ExampleHttpClient:
 
 
 def get_hello_logic(
-    example_http_client: Annotated[
-        ExampleHttpClient, Depends(get_example_http_client)
-    ],
+    example_http_client: Annotated[ExampleHttpClient, Depends(get_example_http_client)],
 ) -> HelloLogic:
     """Provide a HelloLogic instance with its Client dependency."""
     return HelloLogic(example_http_client)

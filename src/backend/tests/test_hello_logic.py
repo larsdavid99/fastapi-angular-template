@@ -16,9 +16,7 @@ class TestBuildMessage:
 
 
 class TestGreet:
-    async def test_happy_path_returns_message_and_uuid(
-        self, mock_example_http_client
-    ):
+    async def test_happy_path_returns_message_and_uuid(self, mock_example_http_client):
         logic = HelloLogic(example_http_client=mock_example_http_client)
 
         result = await logic.greet(HelloRequest(name="World"))

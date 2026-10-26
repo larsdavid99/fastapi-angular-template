@@ -1,0 +1,6 @@
+# The command itself needs only the standard library and the gh CLI.
+# Exact versions, so CI's checks agree with local ones.
+black==26.10.1
+flake8==7.4.1
+mypy==2.4.0
+pytest>=8.3.0

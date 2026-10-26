@@ -228,3 +228,23 @@ With a flat, layer-based structure, cross-module communication follows the same 
 | Testability | Mock dependencies per layer |
 | Maintainability | Change one layer without affecting others |
 | SOLID | Single responsibility per layer, dependency inversion via DI |
+
+---
+
+## Agent skills
+
+### Workflow
+
+Ideas go through grill → spec → Reviewer approval → tickets → implement → PR. Specs are published with `needs-review`, not `ready-for-agent`. An approved Spec can be built by Autopilot instead (`docs/adr/0001-autopilot-on-cloud-routines.md`). See `CONTRIBUTING.md` and the overrides in `docs/agents/triage-labels.md`.
+
+### Issue tracker
+
+Issues are tracked in this repo's GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

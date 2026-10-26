@@ -1,0 +1,111 @@
+name: Autopilot merge
+run-name: Merge #${{ github.event.pull_request.number }}
+
+# A routine can't merge a PR: GitHub won't turn auto-merge on for one that's
+# already green, and the session refuses to merge a PR no person reviewed. So on
+# the `auto-merge` gate the Review run labels the PR `autopilot:merge`, and this
+# workflow merges it once it has checked the gate for itself (docs/adr/0001).
+#
+# GitHub ignores a PR's `Closes #<n>` when the job's token merges it, so this
+# workflow closes those issues itself. Otherwise the Implement run the merge
+# starts would find the Ticket open and hand it back.
+#
+# `pull_request_target` runs this file and the `autopilot` command as they are
+# on main, never as the PR has them, so a PR can't change what lets it merge.
+# Nothing here checks out or runs the PR's code.
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions: {}
+
+concurrency:
+  group: autopilot-merge-${{ github.event.pull_request.number }}
+
+jobs:
+  merge:
+    name: merge
+    if: github.event.label.name == 'autopilot:merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Only what the merge needs: the job's own token, so the merge is neither
+    # the Driver's nor an agent's.
+    permissions:
+      contents: write  # merge
+      pull-requests: write  # read the PR, take the label off
+      issues: write  # the Ticket's Spec, for the gate; close the issues the PR closes
+      checks: read  # the PR's checks, for the gate
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Each refusal is one `::error::` line that starts with the PR, so the
+      # Review run can tell this run's reason from another's.
+      - name: Check the PR may merge
+        id: check
+        run: |
+          refuse() { echo "::error::#$PR: $(echo "$1" | tr '\n' ' ')"; exit 1; }
+          pr=$(gh api "repos/{owner}/{repo}/pulls/$PR" -q '"\(.head.ref) \(.head.repo.full_name) \(.state) \(.head.sha)"' 2>&1) \
+            || refuse "couldn't read it: $pr"
+          read -r branch head_repo state sha <<< "$pr"
+          [ "$state" = open ] || refuse "it's $state, not open"
+          # A fork's branch can be called claude/… too.
+          case "$head_repo:$branch" in "$GH_REPO:claude/"*) ;; *) refuse "$head_repo:$branch isn't an Autopilot branch" ;; esac
+          # GitHub only works out whether it conflicts once someone asks, and the
+          # gate refuses a PR it hasn't.
+          for i in 1 2 3 4 5; do
+            case "$(gh api "repos/{owner}/{repo}/pulls/$PR" -q .mergeable)" in true|false) break ;; esac
+            sleep 10
+          done
+          decision=$(python3 src/autopilot/autopilot.py gate "$PR" 2>&1) || refuse "the gate failed: $decision"
+          case "$decision" in
+            auto-merge|"auto-merge: "*) ;;
+            *) refuse "the gate says $decision" ;;
+          esac
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The head the gate saw: a commit pushed since makes GitHub refuse. A
+      # Review run that gave up waiting takes the label off, so look again.
+      - name: Merge with a merge commit
+        env:
+          SHA: ${{ steps.check.outputs.sha }}
+        run: |
+          labelled=$(gh api "repos/{owner}/{repo}/issues/$PR/labels" -q 'any(.[]; .name == "autopilot:merge")')
+          [ "$labelled" = true ] || { echo "::error::#$PR: autopilot:merge was taken off"; exit 1; }
+          out=$(gh api -X PUT "repos/{owner}/{repo}/pulls/$PR/merge" -f merge_method=merge -f sha="$SHA" 2>&1) \
+            || { echo "::error::#$PR: GitHub refused the merge: $(echo "$out" | tr '\n' ' ')"; exit 1; }
+
+      # Every issue the PR closes, as GitHub would after a person's merge. The
+      # PATCH names each one's repo, so `Closes other/repo#<n>` fails here
+      # rather than closing this repo's #<n>.
+      - name: Close the issues it closes
+        run: |
+          fail() { echo "::error::#$PR: merged, but $(echo "$1" | tr '\n' ' ')"; exit 1; }
+          issues=$(gh api graphql -F owner='{owner}' -F name='{repo}' -F pr="$PR" -f query='
+            query($owner: String!, $name: String!, $pr: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $pr) {
+                  closingIssuesReferences(first: 50) {
+                    nodes { number state repository { nameWithOwner } }
+                  }
+                }
+              }
+            }' -q '.data.repository.pullRequest.closingIssuesReferences.nodes[]
+              | select(.state == "OPEN") | "\(.repository.nameWithOwner)/issues/\(.number)"' 2>&1) \
+            || fail "couldn't read the issues it closes: $issues"
+          for issue in $issues; do
+            out=$(gh api -X PATCH "repos/$issue" -f state=closed -f state_reason=completed --silent 2>&1) \
+              || fail "couldn't close $issue: $out"
+          done
+
+      - name: Take the label off
+        if: failure() || cancelled()
+        run: gh api -X DELETE "repos/{owner}/{repo}/issues/$PR/labels/autopilot:merge" --silent

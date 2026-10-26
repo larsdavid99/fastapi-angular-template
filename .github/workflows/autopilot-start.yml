@@ -1,0 +1,34 @@
+name: Autopilot start
+
+# Routines can't react to issue events, so adding `autopilot` to a Spec fires
+# the Implement routine through its API trigger (docs/adr/0001). The routine decides
+# whether the Spec may start; this workflow only passes the number on.
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  fire:
+    name: fire
+    if: github.event.label.name == 'autopilot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Both secrets come from the Implement routine's API trigger on claude.ai
+      # (docs/agents/autopilot-implement.md, The cloud environment).
+      - name: Fire the Implement routine
+        env:
+          FIRE_URL: ${{ secrets.AUTOPILOT_IMPLEMENT_FIRE_URL }}
+          FIRE_TOKEN: ${{ secrets.AUTOPILOT_IMPLEMENT_FIRE_TOKEN }}
+          SPEC: ${{ github.event.issue.number }}
+        run: |
+          test -n "$FIRE_URL" && test -n "$FIRE_TOKEN" || { echo "::error::AUTOPILOT_IMPLEMENT_FIRE_URL and AUTOPILOT_IMPLEMENT_FIRE_TOKEN must be set"; exit 1; }
+          curl --silent --show-error --fail-with-body -X POST "$FIRE_URL" \
+            -H "Authorization: Bearer $FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Spec #$SPEC\"}"
