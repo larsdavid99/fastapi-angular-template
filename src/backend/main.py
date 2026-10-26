@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from router.hello_router import router as hello_router
 
-
 app = FastAPI(
     title="App API",
     description="FastAPI + Angular template",
