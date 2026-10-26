@@ -9,7 +9,7 @@ from tests.fake_github import FakeGitHub
 SPEC = 66
 TICKET = 79
 PR = 102
-APP_CODE = "src/backend/logic/tally_logic.py"
+APP_CODE = "src/backend/logic/order_logic.py"
 REQUIRED = ("pytest", "black", "flake8", "mypy")
 
 
@@ -122,12 +122,12 @@ def test_without_required_checks_on_main_nothing_counts_as_green(github, autopil
 
 def test_an_adr_change_waits_for_the_reviewer_even_with_auto_merge(github, autopilot):
     github.label(SPEC, "autopilot:auto-merge")
-    autopilot_pr(github, APP_CODE, "docs/adr/0012-tallies-expire.md")
+    autopilot_pr(github, APP_CODE, "docs/adr/0002-orders-expire.md")
     ci_passes(github)
 
     gate = autopilot("gate", str(PR))
 
-    assert gate == "request-reviewer: changes docs/adr/0012-tallies-expire.md"
+    assert gate == "request-reviewer: changes docs/adr/0002-orders-expire.md"
 
 
 def test_a_glossary_change_waits_for_the_reviewer(github, autopilot):
@@ -141,12 +141,12 @@ def test_a_glossary_change_waits_for_the_reviewer(github, autopilot):
 def test_moving_an_adr_out_of_the_adr_folder_waits_for_the_reviewer(github, autopilot):
     github.label(SPEC, "autopilot:auto-merge")
     autopilot_pr(github)
-    github.renamed_file(PR, "docs/adr/0008-opt-out-as-keywords.md", "docs/opt-out.md")
+    github.renamed_file(PR, "docs/adr/0003-refunds-need-a-reason.md", "docs/refunds.md")
     ci_passes(github)
 
     gate = autopilot("gate", str(PR))
 
-    assert gate == "request-reviewer: changes docs/adr/0008-opt-out-as-keywords.md"
+    assert gate == "request-reviewer: changes docs/adr/0003-refunds-need-a-reason.md"
 
 
 def test_a_spec_finding_the_fixer_couldnt_resolve_waits_for_the_reviewer(
@@ -182,7 +182,7 @@ def test_a_change_to_the_loops_machinery_waits_for_the_driver_even_with_auto_mer
 
 def test_red_ci_beats_every_other_gate(github, autopilot):
     github.label(SPEC, "autopilot:auto-merge")
-    autopilot_pr(github, "docs/adr/0012-tallies-expire.md", ".github/workflows/ci.yml")
+    autopilot_pr(github, "docs/adr/0002-orders-expire.md", ".github/workflows/ci.yml")
     github.check_run(PR, "pytest", conclusion="failure")
 
     gate = autopilot("gate", str(PR), "--unresolved-spec-finding")
@@ -191,13 +191,13 @@ def test_red_ci_beats_every_other_gate(github, autopilot):
 
 
 def test_the_reviewer_beats_the_driver(github, autopilot):
-    autopilot_pr(github, "docs/adr/0012-tallies-expire.md", ".github/workflows/ci.yml")
+    autopilot_pr(github, "docs/adr/0002-orders-expire.md", ".github/workflows/ci.yml")
     ci_passes(github)
 
     gate = autopilot("gate", str(PR), "--unresolved-spec-finding")
 
     assert gate == (
-        "request-reviewer: changes docs/adr/0012-tallies-expire.md;"
+        "request-reviewer: changes docs/adr/0002-orders-expire.md;"
         " the fixer couldn't resolve a Spec finding"
     )
 

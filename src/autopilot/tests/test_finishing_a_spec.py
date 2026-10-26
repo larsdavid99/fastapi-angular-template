@@ -46,14 +46,14 @@ def test_a_pr_closed_without_merging_isnt_listed(github, autopilot):
 
 
 def test_a_merged_pr_that_only_mentions_the_ticket_isnt_listed(github, autopilot):
-    github.issue(72, title="Drink of the night", state="closed")
+    github.issue(72, title="Order history", state="closed")
     github.mentioned_by(72, 91, closes=69)
     github.closed_by(72, 106)
     github.sub_issues(SPEC, 72)
 
     summary = autopilot("summary", "66")
 
-    assert summary == "- #72 Drink of the night: merged in #106"
+    assert summary == "- #72 Order history: merged in #106"
 
 
 def test_a_ticket_still_open_says_so(github, autopilot):

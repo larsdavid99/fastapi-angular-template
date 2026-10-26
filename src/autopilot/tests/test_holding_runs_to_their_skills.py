@@ -29,7 +29,7 @@ CODE_REVIEW = "mattpocock-skills:code-review"
 PR = "mattpocock-skills:pr"
 TDD = "mattpocock-skills:tdd"
 DOCS = ["README.md", "docs/agents/autopilot-review.md"]
-SRC = ["README.md", "src/backend/logic/log_logic.py"]
+SRC = ["README.md", "src/backend/logic/order_logic.py"]
 
 
 def denied(decision: dict[str, Any] | None) -> str:
