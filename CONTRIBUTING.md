@@ -181,7 +181,7 @@ Agents write most of the code, so a person has to be able to understand a PR wit
 
 Build it in four parts:
 
-1. **Docs.** The ticket and its spec stories, then any changes to ADRs, `GLOSSARY.md`, `docs/architecture-pattern.md` or `.claude/CLAUDE.md`. This is what was asked for and what was decided.
+1. **Docs.** The ticket and its spec stories, then any changes to ADRs, `GLOSSARY.md`, `docs/architecture/` or `.claude/CLAUDE.md`. This is what was asked for and what was decided.
 2. **Setup.** `env_config.py`, `.env.example`, `docker-compose.yml`, `requirements*.txt`, `package.json`, and test harness changes (`conftest.py`). These are the new switches, defaults and dependencies.
 3. **One block per vertical slice.** Start each block with its test, because the test states what the slice promises. Then list the code bottom-up, the order it was built in:
 

@@ -4,13 +4,19 @@
 
 ## Commands
 
-<!-- Fill in: install, run, test, lint, type-check, migrate. One line each. -->
+<!-- Fill in: one line each (install, run, test, lint + types + lint-imports, migrate). -->
+
+## Read before you start
+
+- Adding a pattern (Unit of Work, null or fake adapter, shared helper, idempotency, outbox, domain events, strategy) → `../docs/architecture/patterns.md`
+- Touching logging, tracing, redaction, the health check, or a log test → `../docs/architecture/observability.md`
+- Creating a module, a cross-module call, or an import-linter contract → `../docs/architecture/boundaries.md`
 
 ---
 
 ## Architecture
 
-A modular monolith (see **Structure**): the app is split into feature modules, and inside each module a layered API in which dependencies point inward, toward the business rules. The design is language-agnostic: an *interface* below means whatever your language uses (C# `interface`, Python `Protocol`/ABC, TypeScript `interface`, Go `interface`, Rust `trait`).
+A **modular monolith**: one deployable, split into feature modules, each a layered API in which dependencies point inward, toward the business rules. *Interface* means your language's version (C# `interface`, Python `Protocol`, TypeScript `interface`, Go `interface`, Rust `trait`). Examples are Python and follow a `payments` module that charges orders from an `orders` module.
 
 ```
 Router → Facade → Logic → Repository / Client
@@ -19,141 +25,210 @@ Router → Facade → Logic → Repository / Client
 | Layer | Speaks | Owns |
 |-------|--------|------|
 | **Router** | HTTP | Request/response, maps exceptions to status codes |
-| **Facade** | Orchestration | One use case end to end; the transaction boundary |
+| **Facade** | Orchestration | One use case end to end; the transaction boundary; the module's public API |
 | **Logic** | Business rules | Decisions, validation, calculations |
 | **Repository** | SQL / ORM | Pure CRUD on our own data |
 | **Client** | HTTP / SDK | One outside system: a vendor API, the clock, the filesystem |
 | **Dependencies** | DI container | Wiring; the only place concrete adapters are chosen |
 
-**The direction rule:** inside a module, each layer calls only the layer below it. A Router calls a Facade, a Facade calls Logic, and Logic calls Repositories and Clients. Between modules, only Facades talk. Enforce this with an import linter in CI (`import-linter`, `dependency-cruiser`, ArchUnit, NetArchTest) so the rule is checked by a machine, not remembered.
+**The direction rule:** inside a module, each layer calls only the layer below it. Between modules, only Facades talk. An import linter enforces both in CI.
 
 ### Router
-Parses the request into a DTO, calls one Facade method, and maps domain exceptions to HTTP codes. A handler is a few lines long.
+Parses the request into a DTO, calls one Facade method, maps domain exceptions to HTTP codes.
+
+```python
+@router.post("", response_model=ChargeResponse)
+def charge(
+    request: ChargeRequest,
+    facade: Annotated[PaymentFacade, Depends(get_payment_facade)],
+) -> ChargeResponse:
+    try:
+        return facade.charge(request)
+    except OrderNotPayableError as e:
+        raise HTTPException(status_code=409, detail=e.message)
+```
 
 ### Facade
-Runs one use case as a short, readable list of steps across one or more Logics in its module, and is the module's public API to the rest of the app. When a use case spans modules, it calls the other module's Facade. It is the **only layer that commits** (Unit of Work): repositories add and flush, and the Facade commits once everything has succeeded. When a Facade method grows, extract the side effects (sending messages, notifying other modules) into a Facade helper so the main method still reads as the use case.
+Runs one use case as a short list of steps across its module's Logics, and calls another module's Facade when the use case spans modules. It is the **only layer that commits** (Unit of Work). When a method grows, extract side effects (sending, notifying) into a Facade helper.
+
+```python
+class PaymentFacade:
+    def charge(self, request: ChargeRequest) -> ChargeResponse:
+        order = self.order_facade.payable(request.order_id)  # other module: its Facade
+        with self.unit_of_work:  # commits on success, rolls back on an exception
+            result = self.payment_logic.charge(
+                ChargeOrder(order=order, idempotency_key=request.idempotency_key)
+            )
+        return ChargeResponse.from_result(result)
+```
 
 ### Logic
-All business decisions live here. Logic depends on **ports**, never on vendors:
+All business decisions live here, and Logic depends on **ports**, never on vendors.
 
-- A **port** is an interface Logic owns, named in the domain's terms: `PaymentGateway.charge(ChargeRequest)`, not `StripeClient.createPaymentIntent(...)`. Test: if the interface mirrors the vendor's API, it is not a port yet.
-- One Logic never calls another. When two Logics need the same behaviour, extract a **shared helper** (a class without the `Logic` suffix) that both receive by injection; it never calls a Logic and never commits. When two Logics need to cooperate, the Facade coordinates them.
-- Split a Logic when it holds two separable paths. Reads and writes, or "do" and "undo", are the usual seams (CQRS-lite).
+- A **port** is an interface Logic owns, named in the domain's terms: `PaymentGateway.charge(...)`, not `StripeClient.create_payment_intent(...)`. If the interface mirrors the vendor's API, it is not a port yet.
+- One Logic never calls another. Shared behaviour goes in a **shared helper** (no `Logic` suffix, e.g. `MoneyRounding`) injected into both; cooperation is coordinated by the Facade.
+- Split a Logic along separable paths: reads and writes, or do and undo (`PaymentLogic.charge`, `RefundLogic.refund`).
+
+```python
+class PaymentLogic:
+    def __init__(self, gateway: PaymentGateway, payment_repository: PaymentRepository):
+        self.gateway = gateway
+        self.payment_repository = payment_repository
+
+    def charge(self, request: ChargeOrder) -> ChargeResult:
+        previous = self.payment_repository.get_by_key(request.idempotency_key)
+        if previous is not None:  # a retried request: answer as before, charge nothing
+            return ChargeResult.from_record(previous)
+        outcome = self.gateway.charge(self._gateway_charge(request))
+        payment = self.payment_repository.create(self._payment(request, outcome))
+        self._log(payment)
+        return ChargeResult.from_record(payment)
+```
 
 ### Repository
-Pure persistence on our own data: queries in, records out. It may `flush()` to obtain generated IDs. Business rules and commits belong to the layers above.
+Queries in, records out. It may `flush()` for generated IDs; commits and rules live above it.
+
+```python
+class PaymentRepository:
+    def create(self, dto: PaymentCreate) -> PaymentRecord:
+        record = PaymentRecord(**dto.model_dump())
+        self.db.add(record)
+        self.db.flush()  # the caller needs the generated ID; the Facade commits
+        return record
+```
 
 ### Client (adapter)
-A Client is **thin**: authentication, sending the request, retries and timeouts, and mapping the vendor's response into our DTOs. Every decision about what a response *means* belongs in Logic.
+**Thin**: auth, the request, retries and timeouts, and mapping the response into our DTOs. What a response *means* is decided in Logic.
 
-- Each Client implements a port, and Logic only sees the port.
-- The Client is the **anti-corruption layer**: vendor names, IDs, and quirks are translated at this boundary and never appear in a DTO.
-- It wraps vendor errors in our own domain exceptions.
-- Large payloads such as prompt templates, request builders, or response mappers go in their own modules beside the Client, which keeps the Client to "send, parse, wrap errors".
-- When the vendor API is large, split the Client by resource (`OrdersClient`, `CustomersClient`).
-- Time, randomness, and the filesystem are Clients too (`Clock`), so tests can control them.
+- Each Client implements a port. It is the **anti-corruption layer**: vendor names, IDs and quirks stop here, and vendor errors become our exceptions.
+- Prompt templates, request builders and mappers go in modules beside the Client. Split a large vendor API by resource (`OrdersClient`, `CustomersClient`).
+- Time, randomness and the filesystem are Clients too (`Clock`), so tests control them.
+
+```python
+class PaymentGateway(Protocol):  # the port, in our terms
+    def charge(self, charge: GatewayCharge) -> GatewayOutcome: ...
+
+
+class StripePaymentGateway:  # the adapter
+    def charge(self, charge: GatewayCharge) -> GatewayOutcome:
+        try:
+            response = self.http.post(
+                "/v1/payment_intents",
+                data=self._payload(charge),
+                headers={"Idempotency-Key": charge.idempotency_key},
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise PaymentProviderError("Payment provider unavailable") from e
+        return self._outcome(response.json())  # Stripe's names stop in _outcome
+```
+
+### Dependencies
+Wiring only; picks the adapter for each port. Tests swap adapters with `app.dependency_overrides`.
+
+```python
+def get_payment_gateway(settings: Annotated[Settings, Depends(get_settings)]) -> PaymentGateway:
+    if not settings.stripe_api_key:
+        return NullPaymentGateway()  # local development without Stripe keys
+    return StripePaymentGateway(httpx.Client(base_url=settings.stripe_url, timeout=10))
+```
 
 ---
 
 ## Patterns
 
-Use these by default:
+Use by default:
 
-- **Ports and adapters**: described under Logic and Client. Each external system has one port and one or more adapters. A *null adapter* (`NullPlacesClient`) is a valid adapter for an optional feature or for local development.
-- **Interfaces where they earn their keep**: on ports and on module Facades. Concrete Logic, Repository, and Facade classes go without an interface unless something genuinely swaps them.
-- **DTO-first**: methods take and return DTOs (one request DTO instead of a long parameter list). Each module keeps its DTOs in its own `models/dtos/`, one class per file.
-- **Result objects for expected outcomes**: an expected failure such as a declined card, a refusal, or a failed delivery comes back as a result value the caller must handle. Exceptions are for the unexpected.
-- **Idempotency keys**: every inbound event that causes a side effect carries an external ID with a **unique constraint**, and the first step of handling it is "have we seen this ID?". Webhook providers retry, and a retried webhook must not charge, log, or send twice. Outbound calls that the vendor supports with idempotency keys send one.
+- **Ports and adapters**, with null adapters for optional features and fakes for tests.
+- **Interfaces only where something swaps**: ports and module Facades. `PaymentLogic` has one implementation, so no interface.
+- **DTO-first**: one DTO in, one DTO out, one class per file in the module's `models/dtos/`.
+
+  ```python
+  class ChargeRequest(BaseModel):
+      order_id: int
+      idempotency_key: str = Field(..., max_length=64)
+
+  def charge(self, request: ChargeRequest) -> ChargeResponse: ...  # not (order_id, amount, currency, key)
+  ```
+
+- **Result objects for expected outcomes** (declined, refused, not delivered); exceptions for the unexpected.
+
+  ```python
+  class ChargeResult(BaseModel):
+      approved: bool
+      decline_reason: DeclineReason | None = None  # CARD_DECLINED, PROVIDER_DOWN, ...
+  ```
+
+- **Idempotency keys**: every inbound side-effecting event has an external ID with a **unique constraint**, checked first (see `PaymentLogic.charge`). Outbound calls send the vendor's idempotency key where it has one.
 - **Unit of Work**: one transaction per use case, committed by the Facade.
 
-Add these when the need is real, and record the decision in an ADR:
-
-- **Outbox**: when losing an event after a commit is unacceptable. Write the event to an outbox table in the same transaction, and have a worker publish it.
-- **Domain events**: when a module must react to another (orders reacting to "payment succeeded") and a direct Facade-to-Facade call would make the modules depend on each other in both directions. Before adding a bus, a plain return value listing what happened ("logged", "ended") is often enough.
-- **Strategy**: when there is more than one adapter for a port in production at the same time (two payment providers).
+Add only when the need is real, with an ADR: **outbox**, **domain events**, **strategy**.
 
 ---
 
-## Structure: modules first
-
-The app is a **modular monolith**: one deployable, split into feature modules. Each module is a **bounded context**, a group of concepts that share one vocabulary (payments, orders, catalogue), and each module contains the full set of layers. One class per file; filename = snake_case (or the language's convention) of the class.
+## Structure
 
 ```
 src/
 ├── modules/
 │   ├── payments/
-│   │   ├── CLAUDE.md          # this module's rules only (add when it has some)
-│   │   ├── router/
-│   │   ├── facade/            # the module's public API
-│   │   ├── logic/
-│   │   ├── resource_access/   # repositories
-│   │   ├── clients/           # ports and their adapters
-│   │   ├── models/dtos/
-│   │   ├── exceptions/
-│   │   ├── dependencies/
-│   │   └── tests/
-│   └── orders/
-│       └── ...                # same layers
-├── shared/                    # the shared kernel: kept small
-│   ├── database/              # engine, session, Unit of Work
-│   ├── observability/         # logging, tracing, correlation IDs
-│   └── clock/                 # Clock port + system adapter
-└── main                       # app startup: mounts each module's router
+│   │   ├── CLAUDE.md          # this module's conventions, once it has some
+│   │   ├── router/  facade/  logic/  resource_access/  clients/
+│   │   ├── models/dtos/  models/orm/  exceptions/  dependencies/  tests/
+│   └── orders/ ...
+├── shared/                    # infrastructure only: database + UnitOfWork, observability, clock
+└── main.py                    # mounts each module's router
 ```
 
-### Module rules
+One class per file; filename = snake_case of the class. A module starts with only the layers it needs.
 
-- **A module's Facade is its public API.** Another module reaches it only through that Facade (or through the DTOs that Facade accepts and returns). Its Logic, Repositories, Clients, and ORM models are private.
-- **Cross-module calls happen Facade to Facade.** A Facade may call another module's Facade to orchestrate a use case that spans modules; Logic stays inside its own module.
-- **Each module owns its data.** Its tables are read and written only by its own Repositories. Another module that needs that data asks the owning Facade, and refers to the module's records by ID rather than by foreign key into its tables.
-- **`shared/` holds infrastructure, not business rules.** When two modules want the same business rule, one module owns it and exposes it through its Facade.
-- **The import linter enforces the boundaries:** the layer rules inside every module, plus "module A imports only `modules.b.facade` and `modules.b.models.dtos` from module B".
-
-Draw the module map in an ADR and put each module's vocabulary in `GLOSSARY.md` before writing its code. A new module starts with only the layers it needs (a module with no outside system has no `clients/`).
+**Module rules:**
+- A module's **Facade is its public API**, with its DTOs and exceptions. Its Logic, Repositories, Clients and ORM models are private.
+- Cross-module calls go **Facade to Facade**.
+- Each module **owns its tables**. Other modules ask its Facade and hold its records' IDs, never a join or foreign key into its tables.
+- `shared/` holds infrastructure. A business rule two modules need belongs to one of them, behind its Facade.
+- Module boundaries follow **bounded contexts**: record the module map in an ADR and each module's terms in `GLOSSARY.md` before writing its code.
 
 ---
 
 ## Observability
 
-All of it lives in `shared/observability/`, configured once at startup. Modules only ever call `get_logger(__name__)`.
+Configured once in `shared/observability/`; modules call `structlog.get_logger(__name__)`.
 
-### Logging
+**Logging**
+- **Structured JSON only**; framework loggers go through the same formatter.
+- **Events, not sentences**: a stable `<area>.<what_happened>` name plus fields. Renaming one breaks dashboards.
 
-- **Structured JSON only**, from one logging library (structlog, Serilog, pino, zap, slog). Framework and third-party loggers are routed through the same formatter, so every line in the output is the same shape.
-- **Events, not sentences.** The message is a stable event name, `<area>.<what_happened>` in past tense (`payment.charged`, `outbound.failed`, `request.completed`), and the details are key-value fields. Dashboards and alerts query these names, so a rename is a breaking change.
-- **Every line carries a correlation ID and a trace ID.** Middleware reuses a well-formed incoming `X-Correlation-ID` or generates one, binds it to the logging context for the request, and echoes it on every response, the 500 included. A background job binds its own ID when it starts. An ID that arrives in a webhook or queue message is kept, so one flow can be followed across services.
-- **The middleware logs one line per request**: method, path, status, and duration. Handlers add only what that line cannot say.
-- **Levels have fixed meanings:**
-  - `debug`: development detail, off in production.
-  - `info`: a business event happened (`order.placed`).
-  - `warning`: an expected failure was handled (vendor down, retry, rate limit, invalid input).
-  - `error`: something a human must look at.
-- **Log an exception once, where it is handled.** A layer that re-raises or wraps an exception leaves the logging to the layer that catches it. The request middleware logs anything unhandled, with its stack trace.
-- **Each layer logs what it decides.** Logic logs business events and decisions, and the Facade logs the outcome of a use case. Clients and Repositories raise domain exceptions, and the Logic that handles them logs the failure.
-- **Fields are an allowlist.** Log IDs, counts, durations, statuses, and masked values (`+46*****123`), choosing each field by name. Whole DTOs, request bodies, message text, tokens, and secrets stay out of logs. A **redaction processor** on *every* sink (stdout, the log exporter, the span exporter) masks secrets, credentials in query strings, and personal data as a backstop.
-- **Logs are not the audit trail.** A record the business must keep (who did what, what the AI decided, what was sent) is written to a table through a Repository, inside the use case's transaction. Logs may be sampled, rotated, or lost.
-- **Tests assert on important events** by capturing log output and checking the event name and fields, never the formatted text.
+  ```python
+  logger.info("payment.charged", payment_id=payment.id, order_id=order.order_id, amount_minor=1999)
+  # not: logger.info(f"Charged order {order.order_id} for {amount}")
+  ```
 
-### Tracing and metrics
+- **Every line has a correlation ID and a trace ID.** Middleware reuses a valid incoming `X-Correlation-ID` or generates one, binds it, echoes it on every response (500s too), and logs one `request.completed` line. Background jobs bind their own.
+- **Levels:** `debug` dev detail · `info` a business event · `warning` an expected failure handled · `error` a human must look.
+- **Log an exception once, where it is handled.** Clients and Repositories raise; the Logic that handles the exception logs it; middleware logs anything unhandled.
+- **Fields are an allowlist**: IDs, counts, durations, statuses, masked values. No whole DTOs, bodies, message text, tokens or secrets. A **redaction processor on every sink** (stdout, log export, span export) is the backstop.
+- **Logs are not the audit trail.** Records the business must keep go to a table, in the use case's transaction.
+- Tests assert on event name and fields, not formatted text.
 
-- **OpenTelemetry**, auto-instrumented for the web framework, the database driver, and the HTTP client. Traces, metrics, and the log lines go to one OTLP endpoint, so changing the backend is a configuration change.
-- **The correlation ID is set on the request's span**, and the trace ID is on every log line, so a log line links to its trace and back.
-- **LLM calls are traced** in an LLM observability tool (prompt version, model, tokens, cost, latency), with personal data replaced by placeholders before the call is sent to it.
-- **A health endpoint** checks each dependency (database, required vendors) and reports which one is down.
+**Tracing**
+- **OpenTelemetry** auto-instruments the web framework, database and HTTP client. Traces, metrics and logs go to one OTLP endpoint; the backend is configuration.
+- LLM calls are traced (prompt version, model, tokens, cost, latency) with personal data replaced by placeholders.
+- A **health endpoint** reports each dependency.
 
-Record the observability stack and what counts as personal data in an ADR.
+---
 
 ## Coding standards
 
-- **Small methods:** each method does one thing and reads at a glance. Extract sub-steps into private helpers named for what they decide.
-- **Testable in isolation:** every Logic is unit-tested with fake ports; adapters are tested against a recorded or fake transport; a few end-to-end tests go through the Router.
-- **One meaning, one place:** a rule, constant, or mapping lives in exactly one file.
-- **Comments explain why**, in one line; the name explains what.
+- **Small methods**: one job each, readable at a glance; sub-steps become private helpers named for what they decide (`PaymentLogic.charge` is the target shape).
+- **Testable in isolation**: Logic with fake ports, adapters against a fake transport, a few end-to-end tests through the Router.
+- **One meaning, one place**: each rule, constant or mapping lives in one file.
+- **Comments say why**, in one line: `# Stripe keeps keys for 24 h; our retries finish well within that`.
 
 ---
 
 ## Context for Claude
 
-- Keep this root file to rules that apply everywhere. Each module gets a short `CLAUDE.md` once it has its own conventions: its vocabulary, its invariants, the outside systems it wraps. It loads only when Claude works in that module, so point Claude at one module per task.
-- Leave out anything Claude can look up in config, scripts, or the folder layout. Write down the *why* behind a choice and the gotchas no config reveals.
-- Decisions live in `docs/adr/` (one numbered file per decision) and domain terms in `GLOSSARY.md`. Use glossary terms in code, tests, and prompts.
+- This file holds rules for everywhere. A module's own conventions (vocabulary, invariants, the vendors it wraps) go in that module's `CLAUDE.md`, which loads only when Claude works there. Work on one module per task.
+- Write down the *why* and the gotchas; leave out what config, scripts or the folder layout already say.
+- Decisions go in `../docs/adr/` (one numbered file each), terms in `GLOSSARY.md`. Use glossary terms in code, tests and prompts.
