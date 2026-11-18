@@ -25,7 +25,7 @@ This guide covers setup, the roles, and the path an idea takes from a GitHub iss
 
 > **Reviewing without Claude:** setup is optional for a Reviewer. Every Reviewer step below can be done in GitHub alone, by reading, commenting and labelling.
 
-Before writing code, read [`GLOSSARY.md`](GLOSSARY.md), [`docs/adr/`](docs/adr) and [`.claude/CLAUDE.md`](.claude/CLAUDE.md) (layering rules). Agents read them too. When an issue, test or PR names a domain concept, use the glossary's word for it.
+Before writing code, read [`GLOSSARY.md`](GLOSSARY.md), [`docs/adr/`](docs/adr) and [`.claude/CLAUDE.md`](.claude/CLAUDE.md) (module and layering rules). Agents read them too. When an issue, test or PR names a domain concept, use the glossary's word for it.
 
 ## Roles
 
@@ -182,11 +182,11 @@ Agents write most of the code, so a person has to be able to understand a PR wit
 Build it in four parts:
 
 1. **Docs.** The ticket and its spec stories, then any changes to ADRs, `GLOSSARY.md`, `docs/architecture/` or `.claude/CLAUDE.md`. This is what was asked for and what was decided.
-2. **Setup.** `env_config.py`, `.env.example`, `docker-compose.yml`, `requirements*.txt`, `package.json`, and test harness changes (`conftest.py`). These are the new switches, defaults and dependencies.
+2. **Setup.** `shared/config/settings.py`, `.env.example`, `docker-compose.yml`, `requirements*.txt`, `package.json`, test harness changes (`conftest.py`) and import-linter contracts (`pyproject.toml`). These are the new switches, defaults and dependencies.
 3. **One block per vertical slice.** Start each block with its test, because the test states what the slice promises. Then list the code bottom-up, the order it was built in:
 
    ```
-   backend:  Resource Access / Client → DTOs → Logic → Facade → Dependencies → Router → main.py
+   backend:  Repository / Client → DTOs → Logic → Facade → Dependencies → Router → main.py
    frontend: models → data services → logic services → pages / components
    ```
 
@@ -209,15 +209,15 @@ Example:
 - `docs/adr/0002-orders-expire.md`: why orders expire after 30 days
 
 **2. Setup (5 min)**
-- `src/backend/env_config.py`: `ORDER_TTL_DAYS`, 30 by default
-- `src/backend/tests/conftest.py`: a fixed clock for the expiry tests
+- `src/backend/shared/config/settings.py`: `order_ttl_days`, 30 by default
+- `src/backend/modules/orders/tests/conftest.py`: a fixed clock for the expiry tests
 
 **3. Slice: expiring orders (20 min)** ⚠️ deletes data irreversibly
-- `tests/test_order_expiry_logic.py`: 31-day-old orders go, 29-day-old orders stay
-- `resource_access/order_repository.py`: `delete_before`, no commit
-- `logic/order_expiry_logic.py`: the cutoff rule
-- `facade/order_expiry_facade.py`: one transaction, committed here
-- `router/order_router.py`: `POST /api/orders/expire`
+- `modules/orders/tests/test_order_expiry_logic.py`: 31-day-old orders go, 29-day-old orders stay
+- `modules/orders/resource_access/order_repository.py`: `delete_before`, no commit
+- `modules/orders/logic/order_expiry_logic.py`: the cutoff rule
+- `modules/orders/facade/order_facade.py`: `expire`, one transaction, committed here
+- `modules/orders/router/order_router.py`: `POST /api/orders/expire`
 
 **4. Follow-ups**
 - #27: show expired orders in the UI

@@ -14,4 +14,28 @@ exclude = '''
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["modules", "shared"]
+
+# Module and layer boundaries (.claude/CLAUDE.md, docs/architecture/boundaries.md).
+# Add each new module to the layers contract's containers and give it its own
+# boundary contracts.
+[tool.importlinter]
+root_packages = ["modules", "shared"]
+
+[[tool.importlinter.contracts]]
+name = "Layers inside each module"
+type = "layers"
+containers = ["modules.hello"]
+layers = ["router", "facade", "logic", "clients"]
+
+[[tool.importlinter.contracts]]
+name = "Facades only talk to Logic"
+type = "forbidden"
+source_modules = ["modules.hello.facade"]
+forbidden_modules = ["modules.hello.clients"]
+
+[[tool.importlinter.contracts]]
+name = "Shared is infrastructure and never imports a module"
+type = "forbidden"
+source_modules = ["shared"]
+forbidden_modules = ["modules"]

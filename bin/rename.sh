@@ -53,7 +53,7 @@ sed_inplace "s/title=\"App API\"/title=\"${NEW_NAME} API\"/" "$ROOT/src/backend/
 sed_inplace "s/\"Welcome to App API\"/\"Welcome to ${NEW_NAME} API\"/" "$ROOT/src/backend/main.py"
 
 # OpenTelemetry service name, how Grafana labels the backend's traces and logs
-sed_inplace "s/\"app-backend\"/\"${NEW_NAME}-backend\"/" "$ROOT/src/backend/settings.py"
+sed_inplace "s/\"app-backend\"/\"${NEW_NAME}-backend\"/" "$ROOT/src/backend/shared/config/settings.py"
 sed_inplace "s/OTEL_SERVICE_NAME=app-backend/OTEL_SERVICE_NAME=${NEW_NAME}-backend/" "$ROOT/.env.example" "$ROOT/src/backend/.env.example"
 
 # index.html title

@@ -18,6 +18,7 @@ REQUIRED_CHECKS=(
     "pytest"
     "black"
     "flake8"
+    "lint-imports"
     "frontend build"
     "autopilot pytest"
     "autopilot pytest (3.9)"

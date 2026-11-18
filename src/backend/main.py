@@ -1,4 +1,4 @@
-import env_config  # noqa: F401 - must be first to load .env
+import shared.config.env_config  # noqa: F401 - must be first to load .env
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -6,14 +6,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dependencies.ai_trace_dependencies import get_ai_trace_client
-from observability.correlation_id_middleware import CorrelationIdMiddleware
-from observability.internal_error_handler import internal_error_handler
-from observability.log_export import configure_log_export
-from observability.logging_config import configure_logging
-from observability.tracing import configure_tracing, instrument
-from router.hello_router import router as hello_router
-from settings import get_settings
+from modules.hello.router.hello_router import router as hello_router
+from shared.config.settings import get_settings
+from shared.observability.ai_tracing.ai_trace_dependencies import get_ai_trace_client
+from shared.observability.correlation_id_middleware import CorrelationIdMiddleware
+from shared.observability.health_router import router as health_router
+from shared.observability.internal_error_handler import internal_error_handler
+from shared.observability.log_export import configure_log_export
+from shared.observability.logging_config import configure_logging
+from shared.observability.tracing import configure_tracing, instrument
 
 settings = get_settings()
 configure_logging(level=settings.log_level)
@@ -48,13 +49,9 @@ app.add_middleware(
     expose_headers=[CorrelationIdMiddleware.HEADER],
 )
 app.add_exception_handler(Exception, internal_error_handler)
+app.include_router(health_router)
 app.include_router(hello_router)
 instrument(app, tracer_provider)
-
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
 
 
 @app.get("/")
