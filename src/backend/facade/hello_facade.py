@@ -1,12 +1,12 @@
 """Hello Facade — coordinates Logic classes for the hello workflow."""
 
-import logging
+import structlog
 
 from logic.hello_logic import HelloLogic
 from models.dtos.hello_request import HelloRequest
 from models.dtos.hello_response import HelloResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class HelloFacade:

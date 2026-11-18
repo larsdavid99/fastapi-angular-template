@@ -1,12 +1,12 @@
 """Hello Logic — business rules and orchestration for the hello feature."""
 
-import logging
+import structlog
 
 from clients.example_http_client import ExampleHttpClient
 from models.dtos.hello_request import HelloRequest
 from models.dtos.hello_response import HelloResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class HelloLogic:

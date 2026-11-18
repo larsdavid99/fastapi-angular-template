@@ -1,8 +1,8 @@
 """Hello Router."""
 
-import logging
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
 from dependencies.hello_dependencies import get_hello_facade
@@ -11,7 +11,7 @@ from facade.hello_facade import HelloFacade
 from models.dtos.hello_request import HelloRequest
 from models.dtos.hello_response import HelloResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["hello"])
 
@@ -25,5 +25,5 @@ async def hello(
     try:
         return await facade.greet(request)
     except ExampleApiError as e:
-        logger.warning(f"Example API error: {e}")
+        logger.warning("hello.upstream_failed", source=e.source)
         raise HTTPException(status_code=502, detail=e.message)

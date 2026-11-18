@@ -35,6 +35,7 @@ sed_inplace() {
 # Container names in docker-compose.yml
 sed_inplace "s/container_name: app-backend/container_name: ${NEW_NAME}-backend/" "$ROOT/docker-compose.yml"
 sed_inplace "s/container_name: app-frontend/container_name: ${NEW_NAME}-frontend/" "$ROOT/docker-compose.yml"
+sed_inplace "s/container_name: app-otel-lgtm/container_name: ${NEW_NAME}-otel-lgtm/" "$ROOT/docker-compose.yml"
 
 # Angular project name in angular.json
 sed_inplace "s/\"app\":/\"${NEW_NAME}\":/" "$ROOT/src/frontend/angular.json"
@@ -50,6 +51,10 @@ sed_inplace "s/\"name\": \"app\"/\"name\": \"${NEW_NAME}\"/" "$ROOT/src/frontend
 # FastAPI title
 sed_inplace "s/title=\"App API\"/title=\"${NEW_NAME} API\"/" "$ROOT/src/backend/main.py"
 sed_inplace "s/\"Welcome to App API\"/\"Welcome to ${NEW_NAME} API\"/" "$ROOT/src/backend/main.py"
+
+# OpenTelemetry service name, how Grafana labels the backend's traces and logs
+sed_inplace "s/\"app-backend\"/\"${NEW_NAME}-backend\"/" "$ROOT/src/backend/settings.py"
+sed_inplace "s/OTEL_SERVICE_NAME=app-backend/OTEL_SERVICE_NAME=${NEW_NAME}-backend/" "$ROOT/.env.example" "$ROOT/src/backend/.env.example"
 
 # index.html title
 sed_inplace "s|<title>App</title>|<title>${NEW_NAME}</title>|" "$ROOT/src/frontend/src/index.html"

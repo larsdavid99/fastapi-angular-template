@@ -5,6 +5,7 @@ A production-ready starting point for full-stack projects with:
 - **Backend:** Python 3.13 + FastAPI with a layered architecture (Router → Facade → Logic → Client)
 - **Frontend:** Angular 21+ with standalone components, signals, and a dark-theme design system
 - **Docker Compose:** hot reload for both services, `debugpy` attach on `:5678`
+- **Observability:** structured JSON logs with a correlation ID and trace ID on every line, OpenTelemetry traces and logs to a local Grafana (`grafana/otel-lgtm`), and AI call tracing in Langfuse behind a port ([ADR-0002](docs/adr/0002-observability-stack.md))
 - **Architecture docs:** `.claude/CLAUDE.md` (backend) and `.claude/frontend-CLAUDE.md` (frontend)
 - **Minimal "hello" feature** end-to-end so you can start by copy-and-modify
 - **Agent workflow:** idea → spec → tickets with the [mattpocock skills](https://github.com/mattpocock/skills), and **Autopilot**, which builds an approved spec one ticket at a time on Claude cloud routines ([`CONTRIBUTING.md`](CONTRIBUTING.md))
@@ -62,6 +63,7 @@ docker compose up --build
 | OpenAPI docs | http://localhost:8000/docs |
 | Health check | http://localhost:8000/health |
 | debugpy | tcp://localhost:5678 |
+| Grafana (traces, logs) | http://localhost:3000 (admin/admin) |
 
 On the home page, type a name and click **Submit**. The request flows through every layer of the stack and returns a greeting plus a UUID from `httpbin.org`.
 
@@ -87,6 +89,7 @@ On the home page, type a name and click **Submit**. The request flows through ev
     │   ├── models/dtos/       # Pydantic request/response models
     │   ├── exceptions/        # Domain exceptions
     │   ├── dependencies/      # FastAPI DI wiring
+    │   ├── observability/     # structlog JSON logging, correlation IDs, OpenTelemetry, redaction
     │   └── tests/             # pytest + AsyncMock examples
     └── frontend/              # Angular
         └── src/app/
@@ -112,6 +115,14 @@ docker compose exec backend pytest
 docker compose exec backend black .
 docker compose exec backend flake8 .
 ```
+
+### Observability
+
+Every log line is one JSON object carrying the request's `correlation_id` and `trace_id`. The middleware logs one `request.completed` line per request and echoes `X-Correlation-ID` on every response, the 500 included. Modules log with `structlog.get_logger(__name__)` and an event name (`order.placed`), with details as fields.
+
+- **Traces and logs:** with `docker compose up`, the backend sends both to Grafana at http://localhost:3000. Open **Explore → Tempo** for traces and **Explore → Loki** for logs. From a log line you can jump to its trace. To use Grafana Cloud instead, set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` (see `.env.example`). Nothing is exported while the endpoint is empty.
+- **Redaction:** spans and exported log lines are passed through `observability/redaction.py` on the way out, which masks query-string secrets and phone numbers. Add your app's personal data to it.
+- **AI calls:** Logic records each call through the `AiTraceClient` port, after `Placeholders` has replaced names and phone numbers. `LangfuseAiTraceClient` is used when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set, `NullAiTraceClient` otherwise. To switch vendor, write another adapter and choose it in `dependencies/ai_trace_dependencies.py`.
 
 ### Frontend
 
