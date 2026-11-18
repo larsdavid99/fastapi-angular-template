@@ -1,4 +1,13 @@
 services:
+  otel-lgtm:
+    # Grafana with Tempo (traces), Prometheus and Loki in one container; the
+    # backend sends traces and log lines over OTLP/HTTP (ADR-0002).
+    image: grafana/otel-lgtm:0.36.0
+    container_name: app-otel-lgtm
+    ports:
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000"  # Grafana UI (admin/admin)
+      - "127.0.0.1:${OTLP_HOST_PORT:-4318}:4318"  # OTLP/HTTP, for a backend run from a local venv
+
   backend:
     build:
       context: ./src/backend
@@ -13,7 +22,11 @@ services:
     environment:
       - ENVIRONMENT=development
       - DEBUG=True
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4318
     working_dir: /app
+    depends_on:
+      otel-lgtm:
+        condition: service_started
 
   frontend:
     build:
