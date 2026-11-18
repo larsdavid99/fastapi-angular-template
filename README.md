@@ -74,7 +74,7 @@ On the home page, type a name and click **Submit**. The request flows through ev
 ├── .claude/                   # Architecture docs, and settings: the mattpocock plugin, the Autopilot skills hook
 ├── .github/workflows/         # CI, and the workflows that start Autopilot and merge its PRs
 ├── .vscode/                   # debugpy launch configs, Black + Flake8 settings
-├── docs/                      # architecture-pattern.md, docker-setup.md, adr/, agents/ (skill config, Autopilot routine instructions)
+├── docs/                      # architecture/ (patterns, observability, boundaries), docker-setup.md, adr/, agents/ (skill config, Autopilot routine instructions)
 ├── docker-compose.yml
 ├── CONTRIBUTING.md            # Roles, labels, the idea → merge workflow, Autopilot
 ├── bin/rename.sh              # One-shot project rename
@@ -188,4 +188,4 @@ Layered architecture keeps each layer independently testable:
 
 On the frontend, the same shape applies: components consume Logic Services (signal-based state), which consume Data Services (HTTP), which extend `BaseHttpClient`.
 
-See [docs/architecture-pattern.md](docs/architecture-pattern.md) and [.claude/CLAUDE.md](.claude/CLAUDE.md) for the full explanation.
+See [.claude/CLAUDE.md](.claude/CLAUDE.md) for the rules and [docs/architecture/](docs/architecture/) for the details and examples.
