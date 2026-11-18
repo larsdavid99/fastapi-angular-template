@@ -2,12 +2,12 @@
 
 A production-ready starting point for full-stack projects with:
 
-- **Backend:** Python 3.13 + FastAPI with a layered architecture (Router → Facade → Logic → Client)
+- **Backend:** Python 3.13 + FastAPI as a modular monolith: feature modules, each layered Router → Facade → Logic → Repository / Client, plus `shared/` infrastructure, with the boundaries checked by import-linter ([ADR-0003](docs/adr/0003-modular-monolith.md))
 - **Frontend:** Angular 21+ with standalone components, signals, and a dark-theme design system
 - **Docker Compose:** hot reload for both services, `debugpy` attach on `:5678`
 - **Observability:** structured JSON logs with a correlation ID and trace ID on every line, OpenTelemetry traces and logs to a local Grafana (`grafana/otel-lgtm`), and AI call tracing in Langfuse behind a port ([ADR-0002](docs/adr/0002-observability-stack.md))
 - **Architecture docs:** `.claude/CLAUDE.md` (backend) and `.claude/frontend-CLAUDE.md` (frontend)
-- **Minimal "hello" feature** end-to-end so you can start by copy-and-modify
+- **Minimal `hello` module** end-to-end, with a port and an adapter, so you can start by copy-and-modify
 - **Agent workflow:** idea → spec → tickets with the [mattpocock skills](https://github.com/mattpocock/skills), and **Autopilot**, which builds an approved spec one ticket at a time on Claude cloud routines ([`CONTRIBUTING.md`](CONTRIBUTING.md))
 - **CI** on every PR, which Autopilot's merge gate relies on
 
@@ -82,15 +82,21 @@ On the home page, type a name and click **Submit**. The request flows through ev
 └── src/
     ├── autopilot/             # The `autopilot` command, which decides each step of the Autopilot loop, and its skills hook (own tests)
     ├── backend/               # FastAPI
-    │   ├── clients/           # Pure HTTP (one class per file)
-    │   ├── logic/             # Business rules + orchestration
-    │   ├── facade/            # Coordinates Logic
-    │   ├── router/            # HTTP endpoints
-    │   ├── models/dtos/       # Pydantic request/response models
-    │   ├── exceptions/        # Domain exceptions
-    │   ├── dependencies/      # FastAPI DI wiring
-    │   ├── observability/     # structlog JSON logging, correlation IDs, OpenTelemetry, redaction
-    │   └── tests/             # pytest + AsyncMock examples
+    │   ├── main.py            # Mounts each module's router and the health router
+    │   ├── conftest.py        # App-wide test fixtures
+    │   ├── modules/           # One folder per feature module; its Facade is its public API
+    │   │   └── hello/
+    │   │       ├── router/        # HTTP endpoints, exceptions → status codes
+    │   │       ├── facade/        # One use case end to end; the transaction boundary
+    │   │       ├── logic/         # Business rules, and the ports they depend on
+    │   │       ├── clients/       # Adapters to outside systems (one class per file)
+    │   │       ├── models/dtos/   # Pydantic request/response models
+    │   │       ├── exceptions/    # Domain exceptions
+    │   │       ├── dependencies/  # FastAPI DI wiring; picks each port's adapter
+    │   │       └── tests/         # pytest, with fake ports
+    │   └── shared/            # Infrastructure only, never imports a module
+    │       ├── config/            # Settings, .env loading
+    │       └── observability/     # structlog JSON logging, correlation IDs, OpenTelemetry, redaction, /health, ai_tracing/
     └── frontend/              # Angular
         └── src/app/
             ├── pages/hello/         # Example page
@@ -114,6 +120,9 @@ docker compose exec backend pytest
 # Format
 docker compose exec backend black .
 docker compose exec backend flake8 .
+
+# Check module and layer boundaries (contracts in pyproject.toml)
+docker compose exec backend lint-imports
 ```
 
 ### Observability
@@ -121,8 +130,8 @@ docker compose exec backend flake8 .
 Every log line is one JSON object carrying the request's `correlation_id` and `trace_id`. The middleware logs one `request.completed` line per request and echoes `X-Correlation-ID` on every response, the 500 included. Modules log with `structlog.get_logger(__name__)` and an event name (`order.placed`), with details as fields.
 
 - **Traces and logs:** with `docker compose up`, the backend sends both to Grafana at http://localhost:3000. Open **Explore → Tempo** for traces and **Explore → Loki** for logs. From a log line you can jump to its trace. To use Grafana Cloud instead, set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` (see `.env.example`). Nothing is exported while the endpoint is empty.
-- **Redaction:** spans and exported log lines are passed through `observability/redaction.py` on the way out, which masks query-string secrets and phone numbers. Add your app's personal data to it.
-- **AI calls:** Logic records each call through the `AiTraceClient` port, after `Placeholders` has replaced names and phone numbers. `LangfuseAiTraceClient` is used when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set, `NullAiTraceClient` otherwise. To switch vendor, write another adapter and choose it in `dependencies/ai_trace_dependencies.py`.
+- **Redaction:** spans and exported log lines are passed through `shared/observability/redaction.py` on the way out, which masks query-string secrets and phone numbers. Add your app's personal data to it.
+- **AI calls:** Logic records each call through the `AiTraceClient` port, after `Placeholders` has replaced names and phone numbers. `LangfuseAiTraceClient` is used when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set, `NullAiTraceClient` otherwise. To switch vendor, write another adapter and choose it in `shared/observability/ai_tracing/ai_trace_dependencies.py`.
 
 ### Frontend
 
@@ -136,7 +145,7 @@ docker compose exec frontend npm run build
 
 ### CI
 
-GitHub Actions runs on every pull request (`.github/workflows/ci.yml`). Each job is its own check: `pytest`, `black` and `flake8` for the backend, `frontend build`, and the `autopilot …` checks for the `autopilot` command. The backend checks install `requirements-dev.txt`, which pins black and flake8, so local runs and CI agree. Pushes to a branch without a PR don't trigger it.
+GitHub Actions runs on every pull request (`.github/workflows/ci.yml`). Each job is its own check: `pytest`, `black`, `flake8` and `lint-imports` for the backend, `frontend build`, and the `autopilot …` checks for the `autopilot` command. The backend checks install `requirements-dev.txt`, which pins black, flake8 and import-linter, so local runs and CI agree. Pushes to a branch without a PR don't trigger it.
 
 When you add a check, add its name to `REQUIRED_CHECKS` in `bin/setup-autopilot.sh` and run the script again, so `main` requires it.
 
@@ -159,10 +168,13 @@ The command needs only the standard library and the `gh` CLI. It promises to run
 
 ## Starting a new feature
 
-1. Pick a domain name (e.g. `user`). Create: `models/dtos/user_*.py`, `exceptions/user_*.py`, `clients/user_http_client.py`, `logic/user_logic.py`, `facade/user_facade.py`, `router/user_router.py`, `dependencies/user_dependencies.py`, `tests/test_user_logic.py`.
-2. Register the router in `main.py`.
-3. On the frontend: add `models/user-*.model.ts`, `services/data-services/user-data.service.ts`, `services/logic-services/user-logic.service.ts`, and a `pages/user/` or `components/user/` folder.
-4. The `hello` feature is a working reference — delete it once you have your own.
+1. Decide which module it belongs to. A new bounded context gets a new module: add it to the module map in [ADR-0003](docs/adr/0003-modular-monolith.md) and its terms to `GLOSSARY.md` first.
+2. Create `src/backend/modules/<name>/` with only the layers it needs (`router/`, `facade/`, `logic/`, `resource_access/`, `clients/`, `models/dtos/`, `exceptions/`, `dependencies/`, `tests/`). One class per file.
+3. Give each outside system a port: a `Protocol` in `logic/` named in the domain's terms, an adapter in `clients/`, and a fake in `tests/`. Choose the adapter in `dependencies/`.
+4. Add the module to the import-linter contracts in `pyproject.toml`.
+5. Mount its router in `main.py`.
+6. On the frontend: add `models/<name>-*.model.ts`, `services/data-services/<name>-data.service.ts`, `services/logic-services/<name>-logic.service.ts`, and a `pages/<name>/` or `components/<name>/` folder.
+7. The `hello` module is a working reference — delete it once you have your own.
 
 ## Publishing this template
 
@@ -178,13 +190,13 @@ gh repo edit --template    # marks as template on GitHub
 
 ## Philosophy
 
-Layered architecture keeps each layer independently testable:
+The backend is a modular monolith: one deployable, split into feature modules that talk only through each other's Facades. Inside a module, dependencies point inward, toward the business rules, so each layer can be tested on its own:
 
-- **Client** knows HTTP, nothing else.
-- **Logic** knows business rules, orchestrates its Client / Resource Access.
-- **Facade** coordinates multiple Logic classes and (post-MVP) owns transactions.
-- **Router** is a thin mapping of HTTP to Facade calls.
-- **Dependencies** wires it all bottom-up via FastAPI's `Depends`.
+- **Router** maps HTTP to one Facade call, and domain exceptions to status codes.
+- **Facade** runs one use case end to end, owns its transaction, and is the module's public API.
+- **Logic** holds the business rules and depends on ports, never on vendors.
+- **Repository / Client** do CRUD on the module's own tables, or talk to one outside system. A Client is the anti-corruption layer: vendor names and errors stop there.
+- **Dependencies** wires it all via FastAPI's `Depends`, and is the only place adapters are chosen.
 
 On the frontend, the same shape applies: components consume Logic Services (signal-based state), which consume Data Services (HTTP), which extend `BaseHttpClient`.
 

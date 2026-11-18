@@ -29,6 +29,9 @@ jobs:
             command: black --check --diff .
           - check: flake8
             command: flake8 .
+          # Module and layer boundaries, contracts in pyproject.toml.
+          - check: lint-imports
+            command: lint-imports
 
     defaults:
       run:

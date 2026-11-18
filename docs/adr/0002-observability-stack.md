@@ -10,6 +10,6 @@ Phone numbers and secrets in query strings are masked in every span and exported
 
 ## Consequences
 
-- Each app adds its own personal data (emails, addresses, positions) to `observability/redaction.py` and records what counts as personal data here.
+- Each app adds its own personal data (emails, addresses, positions) to `shared/observability/redaction.py` and records what counts as personal data here.
 - `Placeholders` can only replace names the caller knows and passes in. A name it was never told reaches Langfuse as written. Accept this, or run named-entity recognition before tracing.
 - Logs are not the audit trail: a record the business must keep is written to a table inside the use case's transaction.
