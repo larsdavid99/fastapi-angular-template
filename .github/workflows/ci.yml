@@ -83,7 +83,7 @@ jobs:
   # no longer install on 3.9, so only pytest does.
   autopilot:
     name: autopilot ${{ matrix.check }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     timeout-minutes: 5
 
     strategy:
@@ -96,6 +96,8 @@ jobs:
             command: python -m pytest
           - check: pytest (3.9)
             python: "3.9"
+            # setup-python has no 3.9 build for ubuntu-latest (26.04) any more.
+            runner: ubuntu-24.04
             install: pip install pytest
             command: python -m pytest
           - check: black
